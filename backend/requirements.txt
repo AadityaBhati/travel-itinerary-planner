@@ -3,6 +3,6 @@ uvicorn[standard]==0.34.0
 pydantic==2.10.5
 pydantic-settings==2.7.1
 httpx==0.28.1
-groq==0.15.0
+openai==1.109.1
 supabase==2.11.0
 pytest==8.3.4

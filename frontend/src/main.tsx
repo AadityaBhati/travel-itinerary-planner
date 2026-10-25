@@ -6,9 +6,16 @@ import { supabase, supabaseConfigured } from "./lib/supabase";
 import { deleteTrip, listTrips, saveTrip, updateTrip, type Day, type Itinerary, type SavedTrip } from "./lib/trips";
 
 const API = import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL || "http://localhost:8000";
-async function generate(destination: string, startDate: string, endDate: string): Promise<Itinerary> {
+function localDateString(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+async function generate(session: Session, destination: string, startDate: string, endDate: string): Promise<Itinerary> {
   const response = await fetch(`${API}/api/itineraries/generate`, {
-    method: "POST", headers: { "Content-Type": "application/json" },
+    method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
     body: JSON.stringify({ destination, start_date: startDate, end_date: endDate, travelers: 2, budget: 1800, interests: ["food", "culture"], pace: "balanced" }),
   });
   if (!response.ok) {
@@ -66,6 +73,22 @@ function DayView({ day, index }: { day: Day; index: number }) {
   return <article className="day"><div className="day-number">{String(index + 1).padStart(2, "0")}</div><div><p className="date">{new Date(`${day.date}T00:00:00`).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}</p><h3>{day.title}</h3><p>{day.summary}</p>{day.activities.map(activity => <div className="activity" key={activity.time + activity.title}><b>{activity.time}</b><span><strong>{activity.title}</strong>{activity.description}</span><small>${activity.estimated_cost}</small></div>)}</div></article>;
 }
 
+function ImageGallery({ images }: { images: Itinerary["images"] }) {
+  if (!images?.length) return null;
+  return <div className="image-gallery">
+    {images.map(image => <ImageFigure key={image.source_url} image={image} />)}
+  </div>;
+}
+
+function ImageFigure({ image }: { image: NonNullable<Itinerary["images"]>[number] }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) return null;
+  return <figure>
+    <img src={image.url} alt={image.alt} loading="lazy" onError={() => setFailed(true)} />
+    <figcaption>Photo by <a href={image.photographer_url} target="_blank" rel="noreferrer">{image.photographer_name}</a> on <a href={image.source_url} target="_blank" rel="noreferrer">Unsplash</a></figcaption>
+  </figure>;
+}
+
 function ItineraryView({ itinerary, savedTrip, session, onSaved }: { itinerary: Itinerary; savedTrip: SavedTrip | null; session: Session | null; onSaved: (trip: SavedTrip) => void }) {
   const [saving, setSaving] = useState(false); const [message, setMessage] = useState(""); const [error, setError] = useState("");
   const [title, setTitle] = useState(savedTrip?.title ?? `${itinerary.destination} getaway`);
@@ -80,6 +103,7 @@ function ItineraryView({ itinerary, savedTrip, session, onSaved }: { itinerary: 
   };
   return <section className="itinerary">
     <div className="section-heading"><p className="eyebrow">YOUR ITINERARY</p><h2>{itinerary.destination}, thoughtfully planned.</h2><p>{itinerary.days.length} days · Estimated ${itinerary.total_estimated_cost}</p></div>
+    <ImageGallery images={itinerary.images} />
     <div className="save-bar"><label className="title-field">Trip title<input value={title} onChange={event => setTitle(event.target.value)} /></label><span>{savedTrip ? "Saved itinerary" : session ? "This itinerary is not saved yet." : "Sign in to save this itinerary."}</span><button className="primary small" disabled={saving || !session} onClick={() => void persist()}>{saving ? "Saving…" : savedTrip ? "Save changes" : "Save trip"}</button></div>
     {message && <p className="success">{message}</p>}{error && <p className="notice">{error}</p>}
     <div className="days">{itinerary.days.map((day, i) => <DayView day={day} index={i} key={day.date} />)}</div>
@@ -87,7 +111,8 @@ function ItineraryView({ itinerary, savedTrip, session, onSaved }: { itinerary: 
 }
 
 function App() {
-  const [destination, setDestination] = useState("Lisbon"); const [start, setStart] = useState("2026-06-01"); const [end, setEnd] = useState("2026-06-03");
+  const today = localDateString();
+  const [destination, setDestination] = useState("Lisbon"); const [start, setStart] = useState(today); const [end, setEnd] = useState(today);
   const [itinerary, setItinerary] = useState<Itinerary | null>(null); const [savedTrip, setSavedTrip] = useState<SavedTrip | null>(null); const [trips, setTrips] = useState<SavedTrip[]>([]);
   const [session, setSession] = useState<Session | null>(null); const [authLoading, setAuthLoading] = useState(supabaseConfigured); const [tripsLoading, setTripsLoading] = useState(false); const [loading, setLoading] = useState(false); const [error, setError] = useState("");
 
@@ -106,7 +131,9 @@ function App() {
 
   const create = async () => {
     setLoading(true); setError(""); setSavedTrip(null);
-    try { setItinerary(await generate(destination, start, end)); }
+    if (start < today) { setError("Choose a start date from today onward."); setLoading(false); return; }
+    if (end < start) { setError("End date must be on or after the start date."); setLoading(false); return; }
+    try { setItinerary(await generate(session!, destination, start, end)); }
     catch (generationError) { setItinerary(null); setError(errorMessage(generationError)); }
     finally { setLoading(false); }
   };
@@ -118,11 +145,13 @@ function App() {
     catch (deleteError) { setError(errorMessage(deleteError)); }
   };
 
+  if (authLoading) return <main><section className="auth-gate"><p className="eyebrow">WAYFINDER</p><h1>Preparing your journey.</h1><p>Checking your secure session…</p></section></main>;
+  if (!session) return <main><section className="auth-gate"><div><p className="eyebrow">WAYFINDER</p><h1>Plan somewhere<br /><em>worth remembering.</em></h1><p className="lede">Sign in to create and save private travel plans.</p></div><AuthPanel session={null} onSession={setSession} /></section></main>;
   return <main>
     <nav><div className="logo">wayfinder<span>✦</span></div><div className="navlinks"><a href="#saved-trips">My trips</a><a href="#builder">Plan</a><span className="user-label">{authLoading ? "Loading…" : session?.user.email ?? "Guest"}</span></div></nav>
     <section className="hero"><div><p className="eyebrow">TRAVEL, REIMAGINED</p><h1>Go somewhere<br /><em>worth remembering.</em></h1><p className="lede">Wayfinder turns your big ideas into thoughtful, beautifully-paced journeys.</p><button className="primary" onClick={() => document.getElementById("builder")?.scrollIntoView({ behavior: "smooth" })}>Plan a new trip <span>→</span></button></div><div className="orb"><div className="postcard">✈<small>your next chapter</small></div></div></section>
-    <section className="account"><div><p className="eyebrow">YOUR WAYFINDER ACCOUNT</p><h2>Keep your journeys close.</h2><p>Sign in to save and reopen plans across sessions. Demo generation remains available without an account.</p></div><AuthPanel session={session} onSession={setSession} /></section>
-    <section id="builder" className="builder"><div className="section-heading"><p className="eyebrow">THE TRIP BUILDER</p><h2>Where will you go?</h2><p>Tell us the shape of your trip. We'll fill in the rest.</p></div><div className="form-grid"><label>Destination<input value={destination} onChange={e => setDestination(e.target.value)} placeholder="e.g. Kyoto, Japan" /></label><label>From<input type="date" value={start} onChange={e => setStart(e.target.value)} /></label><label>To<input type="date" value={end} onChange={e => setEnd(e.target.value)} /></label></div><button className="primary" disabled={loading} onClick={() => void create()}>{loading ? "Finding your way…" : "Create my itinerary →"}</button>{error && <p className="notice">{error}</p>}</section>
+    <section className="account"><div><p className="eyebrow">YOUR WAYFINDER ACCOUNT</p><h2>Keep your journeys close.</h2><p>Sign in to create, save and reopen your private travel plans across sessions.</p></div><AuthPanel session={session} onSession={setSession} /></section>
+    <section id="builder" className="builder"><div className="section-heading"><p className="eyebrow">THE TRIP BUILDER</p><h2>Where will you go?</h2><p>Tell us the shape of your trip. We'll fill in the rest.</p></div><div className="form-grid"><label>Destination<input value={destination} onChange={e => setDestination(e.target.value)} placeholder="e.g. Kyoto, Japan" /></label><label>From<input type="date" min={today} value={start} onChange={e => { const value = e.target.value; setStart(value); if (end < value) setEnd(value); }} /></label><label>To<input type="date" min={start || today} value={end} onChange={e => setEnd(e.target.value)} /></label></div><button className="primary" disabled={loading} onClick={() => void create()}>{loading ? "Finding your way…" : "Create my itinerary →"}</button>{error && <p className="notice">{error}</p>}</section>
     {session && <section id="saved-trips" className="saved-trips"><div className="section-heading"><p className="eyebrow">YOUR SAVED TRIPS</p><h2>Return to a plan.</h2></div>{tripsLoading ? <p>Loading saved trips…</p> : trips.length === 0 ? <p className="empty-state">No saved trips yet. Generate one and save it above.</p> : <div className="trip-list">{trips.map(trip => <article className="trip-row" key={trip.id}><button className="trip-open" onClick={() => openTrip(trip)}><strong>{trip.title}</strong><span>{trip.destination} · {trip.start_date} to {trip.end_date}</span></button><button className="delete-button" onClick={() => void removeTrip(trip)}>Delete</button></article>)}</div>}</section>}
     {itinerary && <div id="itinerary"><ItineraryView key={savedTrip?.id ?? `${itinerary.destination}-${itinerary.start_date}`} itinerary={itinerary} savedTrip={savedTrip} session={session} onSaved={trip => { setSavedTrip(trip); setTrips(current => [trip, ...current.filter(item => item.id !== trip.id)]); }} /></div>}
     <footer><div className="logo">wayfinder<span>✦</span></div><p>Make more room for the moments that matter.</p></footer>

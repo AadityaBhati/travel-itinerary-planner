@@ -23,6 +23,15 @@ export type Itinerary = {
   end_date: string;
   total_estimated_cost: number;
   days: Day[];
+  images?: ItineraryImage[];
+};
+
+export type ItineraryImage = {
+  url: string;
+  alt: string;
+  photographer_name: string;
+  photographer_url: string;
+  source_url: string;
 };
 
 export type TripPreferences = {

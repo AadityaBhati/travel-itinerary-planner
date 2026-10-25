@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 import logging
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from .auth import AuthenticatedUser, get_current_user
 from .config import Settings, get_settings
 from .providers import AIProvider, AIProviderError, build_provider
 from .schemas import Itinerary, ItineraryDay, RegenerateDayRequest, TripRequest
@@ -9,7 +10,12 @@ from .schemas import Itinerary, ItineraryDay, RegenerateDayRequest, TripRequest
 @asynccontextmanager
 async def lifespan(application: FastAPI):
     application.state.provider = build_provider(get_settings())
-    yield
+    try:
+        yield
+    finally:
+        close = getattr(application.state.provider, "close", None)
+        if close:
+            await close()
 
 
 app = FastAPI(title="Wayfinder API", version="0.1.0", lifespan=lifespan)
@@ -31,7 +37,7 @@ async def health():
 
 
 @app.post("/api/itineraries/generate", response_model=Itinerary)
-async def generate(request: TripRequest, ai: AIProvider = Depends(provider)):
+async def generate(request: TripRequest, _user: AuthenticatedUser = Depends(get_current_user), ai: AIProvider = Depends(provider)):
     try:
         return await ai.generate(request)
     except AIProviderError as exc:
@@ -40,7 +46,7 @@ async def generate(request: TripRequest, ai: AIProvider = Depends(provider)):
 
 
 @app.post("/api/itineraries/regenerate-day", response_model=ItineraryDay)
-async def regenerate_day(request: RegenerateDayRequest, ai: AIProvider = Depends(provider)):
+async def regenerate_day(request: RegenerateDayRequest, _user: AuthenticatedUser = Depends(get_current_user), ai: AIProvider = Depends(provider)):
     try:
         return await ai.regenerate_day(request)
     except AIProviderError as exc:

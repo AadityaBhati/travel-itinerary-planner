@@ -6,6 +6,13 @@ const itinerary: Itinerary = {
   start_date: "2026-06-01",
   end_date: "2026-06-01",
   total_estimated_cost: 10,
+  images: [{
+    url: "https://images.example/lisbon.jpg",
+    alt: "Lisbon rooftops",
+    photographer_name: "Jane Doe",
+    photographer_url: "https://unsplash.com/@jane",
+    source_url: "https://unsplash.com/photos/lisbon",
+  }],
   days: [{
     date: "2026-06-01",
     title: "A day out",

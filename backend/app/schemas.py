@@ -20,6 +20,8 @@ class TripRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_dates(self):
+        if self.start_date < date.today():
+            raise ValueError("start_date cannot be in the past")
         if self.end_date < self.start_date:
             raise ValueError("end_date must be on or after start_date")
         if (self.end_date - self.start_date).days > 30:
@@ -60,6 +62,7 @@ class Itinerary(BaseModel):
     end_date: date
     total_estimated_cost: Decimal = Field(ge=0)
     days: list[ItineraryDay] = Field(min_length=1, max_length=31)
+    images: list["ItineraryImage"] = Field(default_factory=list, max_length=5)
 
     @model_validator(mode="after")
     def validate_semantics(self):
@@ -73,6 +76,14 @@ class Itinerary(BaseModel):
         if abs(total - self.total_estimated_cost) > Decimal("0.01"):
             raise ValueError("total_estimated_cost must equal day costs")
         return self
+
+
+class ItineraryImage(BaseModel):
+    url: str
+    alt: str
+    photographer_name: str
+    photographer_url: str
+    source_url: str
 
 
 class RegenerateDayRequest(BaseModel):
