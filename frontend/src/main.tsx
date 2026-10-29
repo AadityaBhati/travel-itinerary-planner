@@ -125,7 +125,7 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (!session) { setTrips([]); return; }
+if (!session) { setTrips([]); setSavedTrip(null); setItinerary(null); return; }
     setTripsLoading(true); void listTrips(session).then(setTrips).catch(loadError => setError(errorMessage(loadError))).finally(() => setTripsLoading(false));
   }, [session]);
 
