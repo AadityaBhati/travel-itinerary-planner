@@ -13,7 +13,7 @@ class TripRequest(BaseModel):
     interests: list[str] = Field(default_factory=list, max_length=12)
     pace: Literal["relaxed", "balanced", "packed"] = "balanced"
 
-    @field_validator("destination")
+@field_validator("destination", mode="before")
     @classmethod
     def clean_destination(cls, value: str) -> str:
         return " ".join(value.split())
