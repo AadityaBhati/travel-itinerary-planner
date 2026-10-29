@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     azure_openai_api_key: str | None = None
     azure_openai_deployment_name: str = ""
     unsplash_access_key: str | None = None
+    google_maps_api_key: str | None = None
+    maps_provider: str = "osm"
     frontend_origin: str = "http://localhost:5173"
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

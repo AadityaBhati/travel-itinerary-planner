@@ -19,11 +19,39 @@ export type Day = {
 
 export type Itinerary = {
   destination: string;
+  origin?: Place | null;
+  destinations?: Place[];
   start_date: string;
   end_date: string;
   total_estimated_cost: number;
   days: Day[];
   images?: ItineraryImage[];
+  summary?: string;
+  assumptions?: string[];
+  sources?: string[];
+  stops?: Place[];
+  route_legs?: RouteLeg[];
+  budget?: number;
+  currency?: string;
+};
+
+export type Place = {
+  id: string;
+  name: string;
+  latitude: number;
+  longitude: number;
+  category: string;
+  provider: string;
+  source_url?: string | null;
+  address?: string | null;
+};
+
+export type RouteLeg = {
+  from_place_id: string;
+  to_place_id: string;
+  distance_km: number;
+  duration_minutes: number;
+  geometry: number[][];
 };
 
 export type ItineraryImage = {

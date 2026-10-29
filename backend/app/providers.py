@@ -16,7 +16,7 @@ from openai import (
 
 from .config import Settings
 from .images import UnsplashProvider
-from .schemas import Activity, Itinerary, ItineraryDay, RegenerateDayRequest, TripRequest
+from .schemas import Activity, Itinerary, ItineraryDay, Place, RegenerateDayRequest, RouteLeg, TripRequest
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +30,7 @@ class AIProviderError(Exception):
 
 class AIProvider(ABC):
     @abstractmethod
-    async def generate(self, request: TripRequest) -> Itinerary: ...
+    async def generate(self, request: TripRequest, context: dict | None = None) -> Itinerary: ...
 
     @abstractmethod
     async def regenerate_day(self, request: RegenerateDayRequest) -> ItineraryDay: ...
@@ -45,7 +45,7 @@ class MockAIProvider(AIProvider):
         ]
         return ItineraryDay(date=day_date, title=f"Day {index}: Find your bearings", summary=f"An easy first look at {request.destination}.", activities=activities, estimated_cost=sum((a.estimated_cost for a in activities), Decimal(0)))
 
-    async def generate(self, request: TripRequest) -> Itinerary:
+    async def generate(self, request: TripRequest, context: dict | None = None) -> Itinerary:
         days = [self._day(request, request.start_date + timedelta(days=i), i + 1) for i in range(request.days)]
         return Itinerary(destination=request.destination, start_date=request.start_date, end_date=request.end_date, total_estimated_cost=sum((day.estimated_cost for day in days), Decimal(0)), days=days)
 
@@ -161,14 +161,20 @@ class AzureOpenAIProvider(AIProvider):
                 raise
             raise self._error(error, operation) from error
 
-    async def generate(self, request: TripRequest) -> Itinerary:
-        prompt = f"Create a {request.days}-day itinerary for {request.destination}. Dates {request.start_date} to {request.end_date}, {request.travelers} travelers, budget {request.budget}, interests {request.interests}, pace {request.pace}. Return destination, dates, days, activities, and calculated costs. Leave images empty; images are added by the server."
+    async def generate(self, request: TripRequest, context: dict | None = None) -> Itinerary:
+        grounded = context or {}
+        prompt = f"Create a {request.days}-day itinerary for {request.destination}. Dates {request.start_date} to {request.end_date}, {request.travelers} travelers, budget {request.budget} {request.currency}, interests {request.interests}, pace {request.pace}, travel style {request.travel_style}, transport {request.transport}, accommodation {request.accommodation}. Use only these grounded places and route legs when selecting stops: {grounded}. Return destination, dates, days, activities, and calculated costs. Leave images empty; images are added by the server."
         try:
             itinerary = Itinerary.model_validate(await self._complete(prompt, self._itinerary_schema(), "generate"))
             if (itinerary.destination != request.destination
                     or itinerary.start_date != request.start_date
                     or itinerary.end_date != request.end_date):
                 raise ValueError("Azure OpenAI returned itinerary fields that do not match the request")
+            itinerary.stops = [Place.model_validate(place) for place in grounded.get("places", [])]
+            itinerary.route_legs = [RouteLeg.model_validate(leg) for leg in grounded.get("route_legs", [])]
+            itinerary.budget = request.budget
+            itinerary.currency = request.currency
+            itinerary.sources = [place.source_url for place in itinerary.stops if place.source_url]
             return itinerary
         except AIProviderError:
             raise
@@ -185,7 +191,7 @@ class AzureOpenAIProvider(AIProvider):
             raise self._error(error, "regenerate_day_validation") from error
 
 
-def build_provider(settings: Settings) -> AIProvider:
+def build_provider(settings) -> AIProvider:
     base_provider = MockAIProvider() if settings.demo_mode else AzureOpenAIProvider(settings)
     if settings.unsplash_access_key:
         return ImageEnrichedAIProvider(base_provider, UnsplashProvider(settings))
@@ -210,8 +216,8 @@ class ImageEnrichedAIProvider(AIProvider):
             await close()
         await self.images.close()
 
-    async def generate(self, request: TripRequest) -> Itinerary:
-        return await self.images.enrich(await self.provider.generate(request))
+    async def generate(self, request: TripRequest, context: dict | None = None) -> Itinerary:
+        return await self.images.enrich(await self.provider.generate(request, context))
 
     async def regenerate_day(self, request: RegenerateDayRequest) -> ItineraryDay:
         return await self.provider.regenerate_day(request)

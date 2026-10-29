@@ -4,16 +4,41 @@ from typing import Literal
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 
+class Place(BaseModel):
+    id: str = Field(min_length=1, max_length=240)
+    name: str = Field(min_length=1, max_length=160)
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
+    category: str = Field(default="place", max_length=80)
+    provider: str = Field(default="osm", max_length=40)
+    source_url: str | None = None
+    address: str | None = None
+
+
+class RouteLeg(BaseModel):
+    from_place_id: str
+    to_place_id: str
+    distance_km: float = Field(ge=0)
+    duration_minutes: float = Field(ge=0)
+    geometry: list[list[float]] = Field(default_factory=list)
+
+
 class TripRequest(BaseModel):
     destination: str = Field(min_length=2, max_length=120)
+    origin: Place | None = None
+    destinations: list[Place] = Field(default_factory=list, max_length=12)
     start_date: date
     end_date: date
     travelers: int = Field(default=1, ge=1, le=20)
     budget: Decimal = Field(default=2500, gt=0, le=1_000_000)
     interests: list[str] = Field(default_factory=list, max_length=12)
     pace: Literal["relaxed", "balanced", "packed"] = "balanced"
+    currency: str = Field(default="USD", min_length=3, max_length=3)
+    travel_style: str | None = Field(default=None, max_length=80)
+    transport: str | None = Field(default=None, max_length=80)
+    accommodation: str | None = Field(default=None, max_length=120)
 
-@field_validator("destination", mode="before")
+    @field_validator("destination", mode="before")
     @classmethod
     def clean_destination(cls, value: str) -> str:
         return " ".join(value.split())
@@ -63,6 +88,13 @@ class Itinerary(BaseModel):
     total_estimated_cost: Decimal = Field(ge=0)
     days: list[ItineraryDay] = Field(min_length=1, max_length=31)
     images: list["ItineraryImage"] = Field(default_factory=list, max_length=5)
+    summary: str = ""
+    assumptions: list[str] = Field(default_factory=list, max_length=12)
+    sources: list[str] = Field(default_factory=list, max_length=30)
+    stops: list[Place] = Field(default_factory=list, max_length=40)
+    route_legs: list[RouteLeg] = Field(default_factory=list, max_length=40)
+    budget: Decimal | None = Field(default=None, ge=0)
+    currency: str = "USD"
 
     @model_validator(mode="after")
     def validate_semantics(self):
