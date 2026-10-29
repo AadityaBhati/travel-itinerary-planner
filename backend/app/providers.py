@@ -165,6 +165,10 @@ class AzureOpenAIProvider(AIProvider):
         prompt = f"Create a {request.days}-day itinerary for {request.destination}. Dates {request.start_date} to {request.end_date}, {request.travelers} travelers, budget {request.budget}, interests {request.interests}, pace {request.pace}. Return destination, dates, days, activities, and calculated costs. Leave images empty; images are added by the server."
         try:
             itinerary = Itinerary.model_validate(await self._complete(prompt, self._itinerary_schema(), "generate"))
+            if (itinerary.destination != request.destination
+                    or itinerary.start_date != request.start_date
+                    or itinerary.end_date != request.end_date):
+                raise ValueError("Azure OpenAI returned itinerary fields that do not match the request")
             return itinerary
         except AIProviderError:
             raise
